@@ -9,7 +9,7 @@ import disasterFundPoolAbi from '../../public/DisasterFundPool.json';
 import { Loader } from '@/components/Loader';
 import { Toaster } from '@/components/Toaster';
 
-const HARDCODED_OWNER_ADDRESS = "0x138FB03bD0B996542dA8bED11Fc45a7dB395a5dB"; // Hardcoded owner address
+const HARDCODED_OWNER_ADDRESS = "0xF0f5A871c46f798785B93301c0cd5C0706CccD31"; // Hardcoded owner address
 
 export default function Admin() {
   const { isConnected, address } = useAccount();

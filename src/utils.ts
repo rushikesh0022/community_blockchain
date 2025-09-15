@@ -2,7 +2,7 @@ import { ethers } from "ethers";
 import votingAbi from "../public/AnonAadhaarVote.json";
 import disasterFundPoolAbi from "../public/DisasterFundPool.json";
 
-const providerUrl = "https://rpc.ankr.com/eth_sepolia/872c2d1ef0a376a7062e7de0e6f961cfd501f25ee6198d2d5b8378f9bbe9abb1";
+const providerUrl = "https://ethereum-sepolia.publicnode.com";
 
 // Type definitions
 export interface Disaster {
@@ -33,11 +33,9 @@ export const getTotalVotes = async (useTestAadhaar: boolean): Promise<any> => {
 
   const provider = ethers.getDefaultProvider(providerUrl);
   const voteContract = new ethers.Contract(
-    `0x${
-      useTestAadhaar
-        ? process.env.NEXT_PUBLIC_VOTE_CONTRACT_ADDRESS_TEST
-        : process.env.NEXT_PUBLIC_VOTE_CONTRACT_ADDRESS_PROD
-    }`,
+    `0x${(useTestAadhaar
+      ? process.env.NEXT_PUBLIC_VOTE_CONTRACT_ADDRESS_TEST
+      : process.env.NEXT_PUBLIC_VOTE_CONTRACT_ADDRESS_PROD) || ""}`,
     votingAbi.abi,
     provider
   );
@@ -72,11 +70,9 @@ export const hasVoted = async (
 ): Promise<boolean> => {
   const provider = ethers.getDefaultProvider(providerUrl);
   const voteContract = new ethers.Contract(
-    `0x${
-      useTestAadhaar
-        ? process.env.NEXT_PUBLIC_VOTE_CONTRACT_ADDRESS_TEST
-        : process.env.NEXT_PUBLIC_VOTE_CONTRACT_ADDRESS_PROD
-    }`,
+    `0x${(useTestAadhaar
+      ? process.env.NEXT_PUBLIC_VOTE_CONTRACT_ADDRESS_TEST
+      : process.env.NEXT_PUBLIC_VOTE_CONTRACT_ADDRESS_PROD) || ""}`,
     votingAbi.abi,
     provider
   );
@@ -88,11 +84,9 @@ export const hasVoted = async (
 export const getDisasterFundPoolContract = (useTestAadhaar: boolean) => {
   const provider = ethers.getDefaultProvider(providerUrl);
   return new ethers.Contract(
-    `0x${
-      useTestAadhaar
-        ? process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_TEST
-        : process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_PROD
-    }`,
+    `0x${(useTestAadhaar
+      ? process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_TEST
+      : process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_PROD) || ""}`,
     disasterFundPoolAbi.abi,
     provider
   );
