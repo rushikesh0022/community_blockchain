@@ -8,6 +8,7 @@ import { WagmiProvider } from "wagmi";
 import { createWeb3Modal } from "@web3modal/wagmi/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { wagmiConfig } from "../config";
+import { cleanupProvider } from "@/utils";
 
 const queryClient = new QueryClient();
 const projectId = process.env.NEXT_PUBLIC_PROJECT_ID || "";
@@ -30,6 +31,11 @@ export default function App({ Component, pageProps }: AppProps) {
 
   useEffect(() => {
     setReady(true);
+    
+    // Cleanup function when app unmounts
+    return () => {
+      cleanupProvider();
+    };
   }, []);
 
   // Removed useEffect related to voted state
@@ -37,8 +43,8 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <>
       <Head>
-        <title>Disaster Relief Fund</title>
-        <meta property="og:title" content="Anon Aadhaar Example" key="title" />
+        <title>Community Fund Management</title>
+        <meta property="og:title" content="Community Fund Management" key="title" />
         <meta
           property="og:image"
           content="https://anon-aadhaar-example.vercel.app/AnonAadhaarBanner.png"
@@ -47,7 +53,7 @@ export default function App({ Component, pageProps }: AppProps) {
         <meta
           property="og:description"
           name="description"
-          content="A Next.js example app that integrate the Anon Aadhaar SDK."
+          content="Anonymous community funding platform with zero-knowledge identity verification."
         />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="/favicon.ico" />

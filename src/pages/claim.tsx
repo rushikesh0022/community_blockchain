@@ -10,7 +10,7 @@ import { Loader } from "@/components/Loader";
 import { useRouter } from "next/router";
 import { useAccount } from "wagmi";
 import disasterFundPoolAbi from "../../public/DisasterFundPool.json";
-import { getEligibleDisasters, DisasterWithEligibility, formatFunds } from "@/utils";
+import { getEligibleDisasters, DisasterWithEligibility, formatFunds, cleanupProvider } from "@/utils";
 import { AppContext } from "./_app";
 import { writeContract } from "@wagmi/core";
 import { wagmiConfig } from "../config";
@@ -130,8 +130,14 @@ export default function Claim() {
   );
 
   useEffect(() => {
-    // Redirect if not logged in via Anon Aadhaar or wallet not connected
-    if (anonAadhaar.status !== "logged-in" || !isConnected) {
+    // Cleanup provider when wallet disconnects
+    if (!isConnected) {
+      cleanupProvider();
+      return;
+    }
+
+    // Redirect if not logged in via Anon Aadhaar
+    if (anonAadhaar.status !== "logged-in") {
       router.push("/");
       return;
     }
@@ -164,68 +170,115 @@ export default function Claim() {
 
   return (
     <>
-      <main className="flex flex-col min-h-[75vh] mx-auto justify-center items-center w-full p-4">
-        <div className="max-w-4xl w-full">
-          <h2 className="text-[90px] font-rajdhani font-medium leading-none">
-            CLAIM DISASTER FUNDS
-          </h2>
-          <div className="text-md mt-4 mb-8 text-[#717686]">
-            Your Aadhaar has been verified anonymously. Based on your pincode, you may be eligible for the following disaster relief funds.
+      <main className="min-h-screen bg-white">
+        <div className="max-w-6xl mx-auto pt-20 pb-12 px-4">
+          {/* Header Section */}
+          <div className="text-center mb-16">
+            <h1 className="text-7xl font-extralight text-gray-900 mb-6 tracking-tight">
+              Claim Funds
+            </h1>
+            <p className="text-xl font-light text-gray-600 max-w-2xl mx-auto leading-relaxed">
+              Your identity has been verified anonymously. Based on your location, you may be eligible for community funding.
+            </p>
             {anonAadhaarCore?.proof?.pincode && (
-              <span className="block mt-2 font-semibold">Your Verified Pincode: {anonAadhaarCore.proof.pincode}</span>
+              <div className="mt-4 text-lg font-light text-gray-500">
+                Verified Location: {anonAadhaarCore.proof.pincode}
+              </div>
             )}
           </div>
 
-          {/* Use Toaster correctly */}
+          {/* Status Message */}
           {claimStatus && (
-            <Toaster type={claimStatus.type} message={claimStatus.message} />
+            <div className={`mb-8 p-4 rounded-2xl text-center ${
+              claimStatus.type === 'success' 
+                ? 'bg-green-50 text-green-800 border border-green-200' 
+                : 'bg-red-50 text-red-800 border border-red-200'
+            }`}>
+              <p className="font-medium">{claimStatus.message}</p>
+            </div>
           )}
 
-          <div className="mt-8">
-            <h3 className="text-2xl font-rajdhani font-semibold mb-4">Eligible Funds</h3>
+          {/* Eligible Funds Section */}
+          <div className="mt-12">
             {loadingDisasters ? (
-              <Loader />
+              <div className="flex justify-center py-16">
+                <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-300 border-t-gray-900"></div>
+              </div>
             ) : eligibleDisasters.length > 0 ? (
               <div className="space-y-6">
                 {eligibleDisasters.map((disaster) => (
-                  <div key={disaster.id} className={`border p-4 rounded-lg shadow ${disaster.eligible ? 'border-green-500' : 'border-gray-300'}`}>
+                  <div 
+                    key={disaster.id} 
+                    className={`bg-white rounded-3xl p-8 shadow-sm border transition-all duration-300 hover:shadow-md ${
+                      disaster.eligible ? 'border-green-200' : 'border-gray-200'
+                    }`}
+                  >
                     <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="text-xl font-semibold mb-1">{disaster.name}</h4>
-                        <p className="text-sm text-gray-600 mb-1">Required Pincode: {disaster.pincode}</p>
-                        <p className="text-sm text-gray-600 mb-3">{disaster.description}</p>
-                        <p className="text-sm font-medium">Available Funds: {formatFunds(disaster.totalFunds)}</p>
-                        <p className="text-sm font-medium">Claimed Funds: {formatFunds(disaster.claimedFunds)}</p>
+                      <div className="flex-1">
+                        <h3 className="text-2xl font-light text-gray-900 mb-3">
+                          {disaster.name}
+                        </h3>
+                        <p className="text-gray-600 mb-4 leading-relaxed">
+                          {disaster.description}
+                        </p>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Required Location:</span>
+                            <span className="font-medium">{disaster.pincode}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Available:</span>
+                            <span className="font-medium">{formatFunds(disaster.totalFunds)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Claimed:</span>
+                            <span className="font-medium">{formatFunds(disaster.claimedFunds)}</span>
+                          </div>
+                        </div>
                       </div>
+                      
                       {disaster.eligible && (
-                        <div className="ml-4 flex-shrink-0">
+                        <div className="ml-8 flex-shrink-0">
                           {disaster.hasClaimed ? (
-                            <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
+                            <div className="px-6 py-3 rounded-full bg-gray-100 text-gray-600 font-medium">
                               Already Claimed
-                            </span>
+                            </div>
                           ) : (
                             <button
                               disabled={claimingDisasterId === disaster.id || !anonAadhaarCore}
                               type="button"
-                              className="inline-block bg-[#009A08] rounded-lg text-white px-6 py-1 border-2 border-[#009A08] font-rajdhani font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                                onClick={() => {
-                                  if (anonAadhaarCore) handleClaim(disaster.id, anonAadhaarCore);
-                                }}
-                              >
-                                {claimingDisasterId === disaster.id ? <Loader /> : 'CLAIM (0.001 ETH)'} 
-                              </button>
-                            )}
-                          </div>
+                              className="px-8 py-3 bg-black text-white rounded-full font-medium hover:bg-gray-800 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                              onClick={() => {
+                                if (anonAadhaarCore) handleClaim(disaster.id, anonAadhaarCore);
+                              }}
+                            >
+                              {claimingDisasterId === disaster.id ? (
+                                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                              ) : (
+                                'Claim 0.001 ETH'
+                              )}
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
+                    
                     {!disaster.eligible && (
-                       <p className="text-sm text-red-600 mt-2 font-medium">Your pincode does not match this disaster area.</p>
+                      <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl">
+                        <p className="text-red-700 text-sm font-medium">
+                          Your location does not match this funding area.
+                        </p>
+                      </div>
                     )}
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-gray-500">No active disaster funds found matching your criteria, or unable to load disaster data.</p>
+              <div className="text-center py-16">
+                <p className="text-xl font-light text-gray-500">
+                  No active funding opportunities found for your location.
+                </p>
+              </div>
             )}
           </div>
         </div>

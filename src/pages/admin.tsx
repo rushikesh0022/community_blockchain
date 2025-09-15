@@ -2,8 +2,10 @@ import { useState, useEffect, useContext } from 'react';
 import { useAccount } from 'wagmi';
 import { ethers } from 'ethers';
 import { writeContract } from '@wagmi/core';
+import { LaunchProveModal, useAnonAadhaar } from "@anon-aadhaar/react";
+import { useWeb3Modal } from '@web3modal/wagmi/react';
 import { AppContext } from './_app';
-import { getAllDisasters, Disaster, formatFunds, shortenAddress } from '@/utils';
+import { getAllDisasters, Disaster, formatFunds, shortenAddress, cleanupProvider } from '@/utils';
 import { wagmiConfig } from '@/config';
 import disasterFundPoolAbi from '../../public/DisasterFundPool.json';
 import { Loader } from '@/components/Loader';
@@ -13,20 +15,22 @@ const HARDCODED_OWNER_ADDRESS = "0xF0f5A871c46f798785B93301c0cd5C0706CccD31"; //
 
 export default function Admin() {
   const { isConnected, address } = useAccount();
+  const [anonAadhaar] = useAnonAadhaar();
+  const { open } = useWeb3Modal();
   const { isTestMode } = useContext(AppContext);
   const [isOwner, setIsOwner] = useState<boolean>(false);
-  const [disasters, setDisasters] = useState<Disaster[]>([]);
-  const [loadingDisasters, setLoadingDisasters] = useState<boolean>(true);
+  const [projects, setProjects] = useState<Disaster[]>([]);
+  const [loadingProjects, setLoadingProjects] = useState<boolean>(true);
   const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [processingTx, setProcessingTx] = useState<boolean>(false);
 
   // Form state
-  const [disasterName, setDisasterName] = useState('');
-  const [disasterDesc, setDisasterDesc] = useState('');
-  const [disasterPincode, setDisasterPincode] = useState('');
-  const [disasterFundAmount, setDisasterFundAmount] = useState('');
+  const [projectName, setProjectName] = useState('');
+  const [projectDesc, setProjectDesc] = useState('');
+  const [projectPincode, setProjectPincode] = useState('');
+  const [projectFundAmount, setProjectFundAmount] = useState('');
 
-  // Check access based on hardcoded owner address
+  // Check access based on hardcoded owner address AND Aadhaar verification
   useEffect(() => {
     if (isConnected && address) {
       setIsOwner(address.toLowerCase() === HARDCODED_OWNER_ADDRESS.toLowerCase());
@@ -35,23 +39,32 @@ export default function Admin() {
     }
   }, [isConnected, address]);
 
-  // Fetch all disasters if owner
+  // Cleanup provider when wallet disconnects
   useEffect(() => {
-    if (isOwner) {
-      setLoadingDisasters(true);
-      getAllDisasters(isTestMode)
-        .then(setDisasters)
-        .catch((error) => {
-          console.error("Error fetching disasters:", error);
-          setStatus({ type: 'error', message: 'Failed to load disasters.' });
-        })
-        .finally(() => setLoadingDisasters(false));
+    if (!isConnected) {
+      cleanupProvider();
+      setProjects([]);
+      setLoadingProjects(false);
     }
-  }, [isOwner, isTestMode]);
+  }, [isConnected]);
 
-  const handleRegisterDisaster = async (e: React.FormEvent) => {
+  // Fetch all projects if owner and verified
+  useEffect(() => {
+    if (isOwner && anonAadhaar.status === "logged-in" && isConnected) {
+      setLoadingProjects(true);
+      getAllDisasters(isTestMode)
+        .then(setProjects)
+        .catch((error) => {
+          console.error("Error fetching projects:", error);
+          setStatus({ type: 'error', message: 'Failed to load projects.' });
+        })
+        .finally(() => setLoadingProjects(false));
+    }
+  }, [isOwner, isTestMode, anonAadhaar.status, isConnected]);
+
+  const handleRegisterProject = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!disasterName || !disasterPincode || !disasterFundAmount) {
+    if (!projectName || !projectPincode || !projectFundAmount) {
       setStatus({ type: 'error', message: 'Please fill all required fields.' });
       return;
     }
@@ -59,8 +72,8 @@ export default function Admin() {
     setStatus(null);
 
     try {
-      const fundAmountWei = ethers.parseEther(disasterFundAmount);
-      const pincodeNum = parseInt(disasterPincode, 10);
+      const fundAmountWei = ethers.parseEther(projectFundAmount);
+      const pincodeNum = parseInt(projectPincode, 10);
 
       if (isNaN(pincodeNum) || pincodeNum <= 0) {
          throw new Error("Invalid Pincode.");
@@ -74,30 +87,30 @@ export default function Admin() {
             : process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_PROD
         }`,
         functionName: 'registerDisaster',
-        args: [disasterName, disasterDesc, pincodeNum, fundAmountWei],
+        args: [projectName, projectDesc, pincodeNum, fundAmountWei],
         value: fundAmountWei, // Send ETH along with the transaction
       });
 
-      setStatus({ type: 'success', message: `Disaster registered! Tx: ${tx}` });
-      // Reset form and refetch disasters
-      setDisasterName('');
-      setDisasterDesc('');
-      setDisasterPincode('');
-      setDisasterFundAmount('');
+      setStatus({ type: 'success', message: `Community project registered! Tx: ${tx}` });
+      // Reset form and refetch projects
+      setProjectName('');
+      setProjectDesc('');
+      setProjectPincode('');
+      setProjectFundAmount('');
       getAllDisasters(isTestMode)
-        .then((updatedDisasters) => {
-          setDisasters(updatedDisasters); // Force re-render by updating state
+        .then((updatedProjects) => {
+          setProjects(updatedProjects); // Force re-render by updating state
         });
 
     } catch (error: any) {
-      console.error("Error registering disaster:", error);
-      setStatus({ type: 'error', message: error.shortMessage || error.message || 'Failed to register disaster.' });
+      console.error("Error registering project:", error);
+      setStatus({ type: 'error', message: error.shortMessage || error.message || 'Failed to register project.' });
     } finally {
       setProcessingTx(false);
     }
   };
 
-  const handleSetStatus = async (disasterId: number, newStatus: boolean) => {
+  const handleSetStatus = async (projectId: number, newStatus: boolean) => {
     setProcessingTx(true);
     setStatus(null);
 
@@ -110,15 +123,15 @@ export default function Admin() {
             : process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_PROD
         }`,
         functionName: 'setDisasterStatus',
-        args: [disasterId, newStatus],
+        args: [projectId, newStatus],
       });
 
-      setStatus({ type: 'success', message: `Disaster status updated! Tx: ${tx}` });
-      // Refetch disasters
-      getAllDisasters(isTestMode).then(setDisasters);
+      setStatus({ type: 'success', message: `Project status updated! Tx: ${tx}` });
+      // Refetch projects
+      getAllDisasters(isTestMode).then(setProjects);
 
     } catch (error: any) {
-      console.error("Error setting disaster status:", error);
+      console.error("Error setting project status:", error);
       setStatus({ type: 'error', message: error.shortMessage || error.message || 'Failed to update status.' });
     } finally {
       setProcessingTx(false);
@@ -127,70 +140,223 @@ export default function Admin() {
 
 
   if (!isConnected) {
-     return <div className="text-center py-10">Please connect your wallet.</div>;
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-8">
+            <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-light text-gray-900 mb-4">Connect Wallet</h2>
+          <p className="text-gray-400 mb-8">Access the community management panel</p>
+          <button
+            className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-full font-light shadow-lg transition-all duration-300 hover:shadow-xl hover:-translate-y-1"
+            onClick={() => open()}
+          >
+            Connect Wallet
+          </button>
+        </div>
+      </div>
+    );
   }
 
-  // Directly check against the hardcoded address
   if (!isOwner) {
-    return <div className="text-center py-10 text-red-600">Access Denied. Only the contract owner ({shortenAddress(HARDCODED_OWNER_ADDRESS)}) can access this page.</div>;
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-8">
+            <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-light text-gray-900 mb-4">Access Restricted</h2>
+          <p className="text-gray-400">Administrator access only</p>
+          <p className="text-sm text-gray-300 mt-2">{shortenAddress(HARDCODED_OWNER_ADDRESS)}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (anonAadhaar.status !== "logged-in") {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center max-w-md mx-auto">
+          <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-8">
+            <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-light text-gray-900 mb-4">Identity Verification Required</h2>
+          <p className="text-gray-400 mb-8 leading-relaxed">
+            As an administrator, you need to verify your identity using Anon Aadhaar for secure and transparent community fund management.
+          </p>
+          <LaunchProveModal
+            nullifierSeed={Math.floor(Math.random() * 1983248)}
+            signal={address}
+            fieldsToReveal={["revealPinCode"]}
+            buttonStyle={{
+              borderRadius: "25px",
+              border: "2px solid #3B82F6",
+              backgroundColor: "#3B82F6",
+              color: "white",
+              padding: "16px 32px",
+              fontWeight: "400",
+              fontSize: "16px",
+              boxShadow: "0 8px 25px rgba(59, 130, 246, 0.2)",
+            }}
+            buttonTitle={isTestMode ? "Verify Identity (Test)" : "Verify Identity"}
+          />
+        </div>
+      </div>
+    );
   }
 
   return (
-    <main className="container mx-auto p-4 md:p-8">
-      <h1 className="text-3xl font-bold mb-6 font-rajdhani">Admin Panel</h1>
+    <main className="min-h-screen bg-white">
+      <div className="max-w-5xl mx-auto px-6 py-16">
+        {/* Minimalist Header */}
+        <div className="mb-16">
+          <h1 className="text-5xl font-extralight text-gray-900 mb-3 tracking-tight">
+            Community
+          </h1>
+          <p className="text-lg text-gray-400 font-light">
+            Transparent funding for local initiatives
+          </p>
+        </div>
 
-      {status && <Toaster type={status.type} message={status.message} />}
-
-      {/* Register New Disaster Form */}
-      <section className="mb-12 p-6 border rounded-lg shadow-md bg-white">
-        <h2 className="text-2xl font-semibold mb-4 font-rajdhani">Register New Disaster</h2>
-        <form onSubmit={handleRegisterDisaster} className="space-y-4">
-          <div>
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700">Name*</label>
-            <input type="text" id="name" value={disasterName} onChange={(e) => setDisasterName(e.target.value)} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" />
-          </div>
-          <div>
-            <label htmlFor="description" className="block text-sm font-medium text-gray-700">Description</label>
-            <textarea id="description" value={disasterDesc} onChange={(e) => setDisasterDesc(e.target.value)} rows={3} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"></textarea>
-          </div>
-          <div>
-            <label htmlFor="pincode" className="block text-sm font-medium text-gray-700">Pincode*</label>
-            <input type="number" id="pincode" value={disasterPincode} onChange={(e) => setDisasterPincode(e.target.value)} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" />
-          </div>
-          <div>
-            <label htmlFor="fundAmount" className="block text-sm font-medium text-gray-700">Initial Fund Amount (ETH)*</label>
-            <input type="number" step="any" id="fundAmount" value={disasterFundAmount} onChange={(e) => setDisasterFundAmount(e.target.value)} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" />
-          </div>
-          <button type="submit" disabled={processingTx} className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50">
-            {processingTx ? <Loader /> : 'Register Disaster'}
-          </button>
-        </form>
-      </section>
-
-      {/* Manage Existing Disasters */}
-      <section>
-        <h2 className="text-2xl font-semibold mb-4 font-rajdhani">Manage Disasters</h2>
-        {loadingDisasters ? <Loader /> : (
-          <div className="space-y-4">
-            {disasters.length > 0 ? disasters.map(d => (
-              <div key={d.id} className="p-4 border rounded-lg shadow-sm bg-gray-50 flex justify-between items-center">
-                <div>
-                  <h3 className="text-lg font-medium">{d.name} (ID: {d.id})</h3>
-                  <p className="text-sm text-gray-600">Pincode: {d.pincode}</p>
-                  <p className="text-sm text-gray-600">Funds: {formatFunds(d.totalFunds)} / Claimed: {formatFunds(d.claimedFunds)}</p>
-                </div>
-                <button
-                  onClick={() => handleSetStatus(d.id, !d.active)}
-                  disabled={processingTx}
-                  className={`py-1 px-3 rounded-md text-sm font-medium text-white disabled:opacity-50 ${d.active ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'}`}
-                >
-                  {processingTx ? <Loader /> : (d.active ? 'Deactivate' : 'Activate')}
-                </button>
-              </div>
-            )) : <p>No disasters found.</p>}
+        {/* Status Message */}
+        {status && (
+          <div className={`mb-12 p-6 rounded-2xl border-l-4 ${
+            status.type === 'success' 
+              ? 'bg-emerald-50 border-emerald-400 text-emerald-700' 
+              : 'bg-rose-50 border-rose-400 text-rose-700'
+          }`}>
+            <p className="font-medium">{status.message}</p>
           </div>
         )}
-      </section>
+
+        {/* Create Project Section */}
+        <div className="mb-20">
+          <h2 className="text-2xl font-light text-gray-900 mb-8">New Initiative</h2>
+          <form onSubmit={handleRegisterProject} className="space-y-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="space-y-8">
+                <div>
+                  <input 
+                    type="text" 
+                    value={projectName} 
+                    onChange={(e) => setProjectName(e.target.value)} 
+                    required 
+                    className="w-full text-xl font-light border-0 border-b-2 border-gray-100 focus:border-blue-500 focus:ring-0 bg-transparent pb-3 placeholder-gray-300 transition-colors"
+                    placeholder="Project name"
+                  />
+                </div>
+                <div>
+                  <input 
+                    type="number" 
+                    value={projectPincode} 
+                    onChange={(e) => setProjectPincode(e.target.value)} 
+                    required 
+                    className="w-full text-xl font-light border-0 border-b-2 border-gray-100 focus:border-blue-500 focus:ring-0 bg-transparent pb-3 placeholder-gray-300 transition-colors"
+                    placeholder="Area code"
+                  />
+                </div>
+                <div>
+                  <input 
+                    type="number" 
+                    step="any" 
+                    value={projectFundAmount} 
+                    onChange={(e) => setProjectFundAmount(e.target.value)} 
+                    required 
+                    className="w-full text-xl font-light border-0 border-b-2 border-gray-100 focus:border-blue-500 focus:ring-0 bg-transparent pb-3 placeholder-gray-300 transition-colors"
+                    placeholder="Initial funding (ETH)"
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <textarea 
+                  value={projectDesc} 
+                  onChange={(e) => setProjectDesc(e.target.value)} 
+                  rows={6} 
+                  className="w-full text-lg font-light border-0 border-b-2 border-gray-100 focus:border-blue-500 focus:ring-0 bg-transparent pb-3 placeholder-gray-300 resize-none transition-colors"
+                  placeholder="Describe your community initiative..."
+                />
+              </div>
+            </div>
+            
+            <div className="pt-8">
+              <button 
+                type="submit" 
+                disabled={processingTx} 
+                className="px-12 py-4 bg-blue-600 text-white rounded-full font-medium hover:bg-blue-700 disabled:opacity-40 transition-all duration-200 hover:shadow-lg transform hover:-translate-y-0.5"
+              >
+                {processingTx ? (
+                  <div className="flex items-center">
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-3"></div>
+                    Creating...
+                  </div>
+                ) : 'Create Initiative'}
+              </button>
+            </div>
+          </form>
+        </div>
+
+        {/* Active Projects Section */}
+        <div>
+          <h2 className="text-2xl font-light text-gray-900 mb-8">Active Initiatives</h2>
+          {loadingProjects ? (
+            <div className="flex justify-center py-16">
+              <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {projects.length > 0 ? projects.map(project => (
+                <div key={project.id} className="group p-8 bg-gray-50 rounded-3xl hover:bg-gray-100 transition-colors duration-200">
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <h3 className="text-xl font-medium text-gray-900 mb-2">{project.name}</h3>
+                      {project.description && (
+                        <p className="text-gray-500 mb-6 leading-relaxed">{project.description}</p>
+                      )}
+                      <div className="flex items-center space-x-8 text-sm text-gray-400">
+                        <span>#{project.id}</span>
+                        <span>Area {project.pincode}</span>
+                        <span>{formatFunds(project.totalFunds)} ETH raised</span>
+                        <span>{formatFunds(project.claimedFunds)} ETH distributed</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleSetStatus(project.id, !project.active)}
+                      disabled={processingTx}
+                      className={`ml-8 px-6 py-2 rounded-full text-sm font-medium transition-all duration-200 disabled:opacity-40 ${
+                        project.active 
+                          ? 'bg-rose-100 text-rose-600 hover:bg-rose-200' 
+                          : 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200'
+                      }`}
+                    >
+                      {processingTx ? (
+                        <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+                      ) : (project.active ? 'Pause' : 'Resume')}
+                    </button>
+                  </div>
+                </div>
+              )) : (
+                <div className="text-center py-20">
+                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No initiatives yet</h3>
+                  <p className="text-gray-500">Create your first community initiative above</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     </main>
   );
 }

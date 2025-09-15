@@ -1,21 +1,17 @@
-/* eslint-disable react/no-unescaped-entities */
-/* eslint-disable react/no-unescaped-entities */
 import { LaunchProveModal, useAnonAadhaar } from "@anon-aadhaar/react";
 import { useEffect, useContext, useState } from "react";
 import { useRouter } from "next/router";
 import { useAccount } from "wagmi";
 import { AppContext } from "./_app";
 import { useWeb3Modal } from "@web3modal/wagmi/react";
-import { getAllDisasters, Disaster, formatFunds, shortenAddress } from "@/utils"; // Added shortenAddress
+import { getAllDisasters, Disaster, formatFunds, shortenAddress, cleanupProvider } from "@/utils";
 import { Loader } from "@/components/Loader";
-import { ethers } from "ethers"; // Import ethers
-import { writeContract } from "@wagmi/core"; // Import writeContract
-import { wagmiConfig } from "@/config"; // Import wagmiConfig
-import disasterFundPoolAbi from "../../public/DisasterFundPool.json"; // Import ABI
-import { Toaster } from "@/components/Toaster"; // Import Toaster
+import { ethers } from "ethers";
+import { writeContract } from "@wagmi/core";
+import { wagmiConfig } from "@/config";
+import disasterFundPoolAbi from "../../public/DisasterFundPool.json";
+import { Toaster } from "@/components/Toaster";
 
-// This is a trick to enable having both modes in under the same page.
-// This could be removed and only the <LaunchProveModal /> could be displayed.
 const LaunchMode = ({
   isTest,
   setIsTestMode,
@@ -24,8 +20,11 @@ const LaunchMode = ({
   setIsTestMode: (isTest: boolean) => void;
 }) => {
   return (
-    <button onClick={() => setIsTestMode(!isTest)}>
-      {isTest ? "Switch to Production Mode" : "Switch to Test Mode"}
+    <button 
+      onClick={() => setIsTestMode(!isTest)}
+      className="px-6 py-3 text-sm text-gray-400 hover:text-gray-600 border border-gray-200 rounded-full hover:border-gray-300 transition-colors"
+    >
+      {isTest ? "Production Mode" : "Test Mode"}
     </button>
   );
 };
@@ -36,36 +35,48 @@ export default function Home() {
   const { isTestMode, setIsTestMode } = useContext(AppContext);
   const { open } = useWeb3Modal();
   const router = useRouter();
-  const [disasters, setDisasters] = useState<Disaster[]>([]);
-  const [loadingDisasters, setLoadingDisasters] = useState<boolean>(true);
-  const [donatingTo, setDonatingTo] = useState<number | null>(null); // Track which disaster is being donated to
+  const [projects, setProjects] = useState<Disaster[]>([]);
+  const [loadingProjects, setLoadingProjects] = useState<boolean>(true);
+  const [donatingTo, setDonatingTo] = useState<number | null>(null);
   const [donationAmount, setDonationAmount] = useState<string>('');
   const [processingDonation, setProcessingDonation] = useState<boolean>(false);
   const [donationStatus, setDonationStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
 
   useEffect(() => {
-    if (anonAadhaar.status === "logged-in") {
-      router.push("./claim"); // Redirect to claim page instead of vote page
+    if (anonAadhaar.status === "logged-in" && router.pathname !== "/claim") {
+      router.push("./claim");
     }
-  }, [anonAadhaar, router]);
+  }, [anonAadhaar.status, router]);
+
+  // Cleanup provider when wallet disconnects
+  useEffect(() => {
+    if (!isConnected) {
+      cleanupProvider();
+    }
+  }, [isConnected]);
 
   useEffect(() => {
-    setLoadingDisasters(true);
-    getAllDisasters(isTestMode)
-      .then((fetchedDisasters) => {
-        setDisasters(fetchedDisasters.filter(d => d.active));
-        setLoadingDisasters(false);
-      })
-      .catch((error) => {
-        console.error("Error fetching disasters:", error);
-        setLoadingDisasters(false);
-      });
-  }, [isTestMode]);
+    if (isConnected) {
+      setLoadingProjects(true);
+      getAllDisasters(isTestMode)
+        .then((fetchedProjects) => {
+          setProjects(fetchedProjects.filter(p => p.active));
+          setLoadingProjects(false);
+        })
+        .catch((error) => {
+          console.error("Error fetching projects:", error);
+          setLoadingProjects(false);
+        });
+    } else {
+      setProjects([]);
+      setLoadingProjects(false);
+    }
+  }, [isTestMode, isConnected]);
 
-  const handleDonate = async (disasterId: number) => {
+  const handleDonate = async (projectId: number) => {
     if (!donationAmount || parseFloat(donationAmount) <= 0) {
-      setDonationStatus({ type: 'error', message: 'Please enter a valid donation amount.' });
+      setDonationStatus({ type: 'error', message: 'Please enter a valid contribution amount.' });
       return;
     }
     setProcessingDonation(true);
@@ -82,22 +93,22 @@ export default function Home() {
             : process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_PROD
         }`,
         functionName: 'addFundsToDisaster',
-        args: [disasterId],
-        value: donationAmountWei, // Send ETH with the transaction
+        args: [projectId],
+        value: donationAmountWei,
       });
 
-      setDonationStatus({ type: 'success', message: `Donation successful! Tx: ${tx}` });
-      setDonatingTo(null); // Close donation input
+      setDonationStatus({ type: 'success', message: `Contribution successful! Tx: ${tx}` });
+      setDonatingTo(null);
       setDonationAmount('');
-      // Refetch disasters to show updated funds
+      // Refetch projects to show updated funds
       getAllDisasters(isTestMode)
-        .then((fetchedDisasters) => {
-          setDisasters(fetchedDisasters.filter(d => d.active));
+        .then((fetchedProjects) => {
+          setProjects(fetchedProjects.filter(p => p.active));
         });
 
     } catch (error: any) {
-      console.error("Error donating:", error);
-      setDonationStatus({ type: 'error', message: error.shortMessage || error.message || 'Donation failed.' });
+      console.error("Error contributing:", error);
+      setDonationStatus({ type: 'error', message: error.shortMessage || error.message || 'Contribution failed.' });
     } finally {
       setProcessingDonation(false);
     }
@@ -105,109 +116,156 @@ export default function Home() {
 
 
   return (
-    <>
-      <main className="flex flex-col min-h-[75vh] mx-auto justify-center items-center w-full p-4">
-        {donationStatus && <Toaster type={donationStatus.type} message={donationStatus.message} />}
-        <div className="max-w-4xl w-full">
-          <h2 className="text-[90px] font-rajdhani font-medium leading-none">
-            DISASTER RELIEF FUND
-          </h2>
-          <div className="text-md mt-4 mb-8 text-[#717686]">
-            Verify your Aadhaar anonymously to check eligibility for disaster relief funds based on your pincode.
-          </div>
-
-          <div className="flex w-full gap-8 mb-8 items-center">
+    <div className="min-h-screen bg-white">
+      {donationStatus && (
+        <div className={`fixed top-8 right-8 z-50 p-4 rounded-2xl shadow-lg ${donationStatus.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
+          {donationStatus.message}
+        </div>
+      )}
+      
+      {/* Hero Section */}
+      <div className="container mx-auto px-6 py-20">
+        <div className="max-w-4xl mx-auto text-center mb-20">
+          <h1 className="text-7xl font-extralight text-gray-900 mb-8 tracking-tight">
+            Community
+          </h1>
+          <p className="text-xl text-gray-400 font-light leading-relaxed mb-12">
+            Transparent funding for local initiatives.<br />
+            Verify your identity to participate in community projects.
+          </p>
+          
+          <div className="flex flex-col sm:flex-row gap-6 justify-center items-center">
             <LaunchMode isTest={isTestMode} setIsTestMode={setIsTestMode} />
             {isConnected ? (
               <LaunchProveModal
                 nullifierSeed={Math.floor(Math.random() * 1983248)}
                 signal={address}
-                fieldsToReveal={["revealPinCode"]} // Use the correct key from docs
+                fieldsToReveal={["revealPinCode"]}
                 buttonStyle={{
-                  borderRadius: "8px",
-                  border: "solid",
-                  borderWidth: "1px",
-                  boxShadow: "none",
-                  fontWeight: 500,
-                  borderColor: "#009A08",
-                  color: "#009A08",
-                  fontFamily: "rajdhani",
+                  borderRadius: "25px",
+                  border: "2px solid #3B82F6",
+                  backgroundColor: "#3B82F6",
+                  color: "white",
+                  padding: "16px 32px",
+                  fontWeight: "400",
+                  fontSize: "16px",
+                  boxShadow: "0 8px 25px rgba(59, 130, 246, 0.2)",
                 }}
-                buttonTitle={
-                  isTestMode ? "VERIFY (TEST)" : "VERIFY (REAL)"
-                }
+                buttonTitle={isTestMode ? "Verify Identity (Test)" : "Verify Identity"}
               />
             ) : (
               <button
-                className="bg-[#009A08] rounded-lg text-white px-6 py-1 font-rajdhani font-medium"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-full font-light shadow-lg transition-all duration-300 hover:shadow-xl hover:-translate-y-1"
                 onClick={() => open()}
               >
-                CONNECT WALLET
+                Connect Wallet
               </button>
             )}
           </div>
+        </div>
 
-          <div className="mt-12">
-            <h3 className="text-2xl font-rajdhani font-semibold mb-4">Active Disaster Relief Funds</h3>
-            {loadingDisasters ? (
-              <Loader />
-            ) : disasters.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {disasters.map((disaster) => (
-                  <div key={disaster.id} className="border p-4 rounded-lg shadow">
-                    <h4 className="text-xl font-semibold mb-2">{disaster.name}</h4>
-                    <p className="text-sm text-gray-600 mb-1">Pincode: {disaster.pincode}</p>
-                    <p className="text-sm text-gray-600 mb-3">{disaster.description}</p>
-                    <p className="text-sm font-medium">Total Funds: {formatFunds(disaster.totalFunds)}</p>
-                    <p className="text-sm font-medium">Claimed Funds: {formatFunds(disaster.claimedFunds)}</p>
-                    {/* Donation Section */}
-                    <div className="mt-4">
-                      {donatingTo === disaster.id ? (
-                        <div className="flex items-center space-x-2">
-                          <input
-                            type="number"
-                            step="any"
-                            placeholder="ETH Amount"
-                            value={donationAmount}
-                            onChange={(e) => setDonationAmount(e.target.value)}
-                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm text-xs p-1"
-                            disabled={processingDonation}
-                          />
-                          <button
-                            onClick={() => handleDonate(disaster.id)}
-                            disabled={processingDonation || !isConnected}
-                            className="inline-flex justify-center py-1 px-2 border border-transparent shadow-sm text-xs font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50"
-                          >
-                            {processingDonation ? <Loader /> : 'Confirm'}
-                          </button>
-                          <button
-                             onClick={() => setDonatingTo(null)}
-                             disabled={processingDonation}
-                             className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-50"
-                           >
-                             Cancel
-                           </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => { setDonatingTo(disaster.id); setDonationAmount(''); setDonationStatus(null); }}
-                          disabled={!isConnected}
-                          className="inline-flex justify-center py-1 px-3 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-                        >
-                          Donate
-                        </button>
-                      )}
-                       {!isConnected && <p className="text-xs text-red-500 mt-1">Connect wallet to donate</p>}
+        {/* Projects Section */}
+        <div className="max-w-6xl mx-auto">          
+          {loadingProjects ? (
+            <div className="flex justify-center py-20">
+              <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+          ) : projects.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {projects.map((project: Disaster) => (
+                <div key={project.id} className="group bg-gray-50 rounded-3xl p-8 hover:bg-gray-100 transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
+                  <div className="mb-6">
+                    <h3 className="text-xl font-medium text-gray-900 mb-3">{project.name}</h3>
+                    {project.description && (
+                      <p className="text-gray-500 text-sm leading-relaxed mb-4">{project.description}</p>
+                    )}
+                    
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-400">Area</span>
+                        <span className="font-medium text-gray-600">{project.pincode}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-400">Total</span>
+                        <span className="font-medium text-gray-600">{formatFunds(project.totalFunds)} ETH</span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-400">Distributed</span>
+                        <span className="font-medium text-gray-600">{formatFunds(project.claimedFunds)} ETH</span>
+                      </div>
+                      
+                      {/* Minimal Progress Bar */}
+                      <div className="w-full bg-gray-200 rounded-full h-1 mt-4">
+                        <div 
+                          className="bg-blue-500 h-1 rounded-full transition-all duration-500" 
+                          style={{ 
+                            width: `${Math.min((parseFloat(project.claimedFunds) / parseFloat(project.totalFunds)) * 100, 100)}%` 
+                          }}
+                        ></div>
+                      </div>
                     </div>
                   </div>
-                ))}
+                  
+                  {/* Contribution Section */}
+                  {donatingTo === project.id ? (
+                    <div className="space-y-4">
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="ETH amount"
+                        value={donationAmount}
+                        onChange={(e) => setDonationAmount(e.target.value)}
+                        className="w-full border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:ring-0 bg-transparent pb-2 placeholder-gray-300 transition-colors"
+                        disabled={processingDonation}
+                      />
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => handleDonate(project.id)}
+                          disabled={processingDonation || !isConnected}
+                          className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-3 px-4 rounded-full font-medium disabled:opacity-40 transition-all duration-200"
+                        >
+                          {processingDonation ? (
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>
+                          ) : 'Contribute'}
+                        </button>
+                        <button
+                          onClick={() => setDonatingTo(null)}
+                          disabled={processingDonation}
+                          className="px-4 py-3 text-gray-400 hover:text-gray-600 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { 
+                        setDonatingTo(project.id); 
+                        setDonationAmount(''); 
+                        setDonationStatus(null); 
+                      }}
+                      disabled={!isConnected}
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-full font-medium disabled:opacity-40 transition-all duration-200 hover:shadow-lg"
+                    >
+                      {isConnected ? 'Contribute' : 'Connect to Contribute'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-20">
+              <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-8">
+                <svg className="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
               </div>
-            ) : (
-              <p className="text-gray-500">No active disaster funds found.</p>
-            )}
-          </div>
+              <h3 className="text-xl font-light text-gray-900 mb-4">No Active Initiatives</h3>
+              <p className="text-gray-400">Community projects will appear here</p>
+            </div>
+          )}
         </div>
-      </main>
-    </>
+      </div>
+    </div>
   );
 }
