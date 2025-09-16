@@ -75,11 +75,11 @@ export default function Claim() {
 
       const claimTx = await writeContract(wagmiConfig, {
         abi: disasterFundPoolAbi.abi,
-        address: `0x${
+        address: (
           isTestMode
             ? process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_TEST
             : process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_PROD
-        }`,
+        ) as `0x${string}`,
         functionName: "claimFunds",
         args: [
           disasterId,

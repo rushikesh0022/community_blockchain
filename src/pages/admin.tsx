@@ -5,7 +5,7 @@ import { writeContract } from '@wagmi/core';
 import { LaunchProveModal, useAnonAadhaar } from "@anon-aadhaar/react";
 import { useWeb3Modal } from '@web3modal/wagmi/react';
 import { AppContext } from './_app';
-import { getAllDisasters, Disaster, formatFunds, shortenAddress, cleanupProvider } from '@/utils';
+import { getAllDisasters, Disaster, formatFunds, cleanupProvider, shortenAddress } from '@/utils';
 import { wagmiConfig } from '@/config';
 import disasterFundPoolAbi from '../../public/DisasterFundPool.json';
 import { Loader } from '@/components/Loader';
@@ -30,7 +30,7 @@ export default function Admin() {
   const [projectPincode, setProjectPincode] = useState('');
   const [projectFundAmount, setProjectFundAmount] = useState('');
 
-  // Check access based on hardcoded owner address AND Aadhaar verification
+  // Check access based on hardcoded owner address only
   useEffect(() => {
     if (isConnected && address) {
       setIsOwner(address.toLowerCase() === HARDCODED_OWNER_ADDRESS.toLowerCase());
@@ -48,9 +48,9 @@ export default function Admin() {
     }
   }, [isConnected]);
 
-  // Fetch all projects if owner and verified
+  // Fetch all projects if owner (Aadhaar not required for admin)
   useEffect(() => {
-    if (isOwner && anonAadhaar.status === "logged-in" && isConnected) {
+    if (isOwner && isConnected) {
       setLoadingProjects(true);
       getAllDisasters(isTestMode)
         .then(setProjects)
@@ -60,7 +60,7 @@ export default function Admin() {
         })
         .finally(() => setLoadingProjects(false));
     }
-  }, [isOwner, isTestMode, anonAadhaar.status, isConnected]);
+  }, [isOwner, isTestMode, isConnected]);
 
   const handleRegisterProject = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,11 +81,11 @@ export default function Admin() {
 
       const tx = await writeContract(wagmiConfig, {
         abi: disasterFundPoolAbi.abi,
-        address: `0x${
+        address: (
           isTestMode
             ? process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_TEST
             : process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_PROD
-        }`,
+        ) as `0x${string}`,
         functionName: 'registerDisaster',
         args: [projectName, projectDesc, pincodeNum, fundAmountWei],
         value: fundAmountWei, // Send ETH along with the transaction
@@ -117,11 +117,11 @@ export default function Admin() {
     try {
       const tx = await writeContract(wagmiConfig, {
         abi: disasterFundPoolAbi.abi,
-        address: `0x${
+        address: (
           isTestMode
             ? process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_TEST
             : process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_PROD
-        }`,
+        ) as `0x${string}`,
         functionName: 'setDisasterStatus',
         args: [projectId, newStatus],
       });
@@ -173,40 +173,6 @@ export default function Admin() {
           <h2 className="text-2xl font-light text-gray-900 mb-4">Access Restricted</h2>
           <p className="text-gray-400">Administrator access only</p>
           <p className="text-sm text-gray-300 mt-2">{shortenAddress(HARDCODED_OWNER_ADDRESS)}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (anonAadhaar.status !== "logged-in") {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="text-center max-w-md mx-auto">
-          <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-8">
-            <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-          </div>
-          <h2 className="text-2xl font-light text-gray-900 mb-4">Identity Verification Required</h2>
-          <p className="text-gray-400 mb-8 leading-relaxed">
-            As an administrator, you need to verify your identity using Anon Aadhaar for secure and transparent community fund management.
-          </p>
-          <LaunchProveModal
-            nullifierSeed={Math.floor(Math.random() * 1983248)}
-            signal={address}
-            fieldsToReveal={["revealPinCode"]}
-            buttonStyle={{
-              borderRadius: "25px",
-              border: "2px solid #3B82F6",
-              backgroundColor: "#3B82F6",
-              color: "white",
-              padding: "16px 32px",
-              fontWeight: "400",
-              fontSize: "16px",
-              boxShadow: "0 8px 25px rgba(59, 130, 246, 0.2)",
-            }}
-            buttonTitle={isTestMode ? "Verify Identity (Test)" : "Verify Identity"}
-          />
         </div>
       </div>
     );

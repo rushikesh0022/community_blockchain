@@ -43,12 +43,6 @@ export default function Home() {
   const [donationStatus, setDonationStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
 
-  useEffect(() => {
-    if (anonAadhaar.status === "logged-in" && router.pathname !== "/claim") {
-      router.push("./claim");
-    }
-  }, [anonAadhaar.status, router]);
-
   // Cleanup provider when wallet disconnects
   useEffect(() => {
     if (!isConnected) {
@@ -58,56 +52,87 @@ export default function Home() {
 
   useEffect(() => {
     if (isConnected) {
+      console.log("🔗 Wallet connected, fetching projects...");
+      console.log("📍 Test mode:", isTestMode);
+      console.log("🏠 Contract address:", isTestMode 
+        ? process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_TEST 
+        : process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_PROD);
+      
       setLoadingProjects(true);
       getAllDisasters(isTestMode)
         .then((fetchedProjects) => {
-          setProjects(fetchedProjects.filter(p => p.active));
+          console.log("📋 All fetched projects:", fetchedProjects);
+          const activeProjects = fetchedProjects.filter(p => p.active);
+          console.log("✅ Active projects:", activeProjects);
+          setProjects(activeProjects);
           setLoadingProjects(false);
         })
         .catch((error) => {
-          console.error("Error fetching projects:", error);
+          console.error("❌ Error fetching projects:", error);
           setLoadingProjects(false);
         });
     } else {
+      console.log("🔌 Wallet disconnected, clearing projects");
       setProjects([]);
       setLoadingProjects(false);
     }
   }, [isTestMode, isConnected]);
 
   const handleDonate = async (projectId: number) => {
+    console.log("🎯 Starting donation process:", { projectId, donationAmount, isTestMode });
+    
     if (!donationAmount || parseFloat(donationAmount) <= 0) {
       setDonationStatus({ type: 'error', message: 'Please enter a valid contribution amount.' });
       return;
     }
+    
+    console.log("💰 Donation amount valid:", donationAmount);
     setProcessingDonation(true);
     setDonationStatus(null);
 
     try {
       const donationAmountWei = ethers.parseEther(donationAmount);
+      console.log("⚡ Amount in Wei:", donationAmountWei.toString());
+      
+      const contractAddress = isTestMode
+        ? process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_TEST
+        : process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_PROD;
+      
+      console.log("🏠 Using contract address:", contractAddress);
+      console.log("📋 Contract ABI loaded:", !!disasterFundPoolAbi.abi);
+      console.log("🔧 Function:", 'addFundsToDisaster');
+      console.log("📝 Args:", [projectId]);
 
       const tx = await writeContract(wagmiConfig, {
         abi: disasterFundPoolAbi.abi,
-        address: `0x${
-          isTestMode
-            ? process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_TEST
-            : process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_PROD
-        }`,
+        address: contractAddress as `0x${string}`,
         functionName: 'addFundsToDisaster',
         args: [projectId],
         value: donationAmountWei,
       });
 
+      console.log("✅ Transaction successful:", tx);
       setDonationStatus({ type: 'success', message: `Contribution successful! Tx: ${tx}` });
       setDonatingTo(null);
       setDonationAmount('');
+      
       // Refetch projects to show updated funds
+      console.log("🔄 Refetching projects...");
       getAllDisasters(isTestMode)
         .then((fetchedProjects) => {
-          setProjects(fetchedProjects.filter(p => p.active));
+          const activeProjects = fetchedProjects.filter(p => p.active);
+          console.log("📊 Updated projects:", activeProjects);
+          setProjects(activeProjects);
         });
 
     } catch (error: any) {
-      console.error("Error contributing:", error);
+      console.error("❌ Donation error:", error);
+      console.error("📄 Error details:", {
+        code: error.code,
+        message: error.message,
+        shortMessage: error.shortMessage,
+        data: error.data
+      });
       setDonationStatus({ type: 'error', message: error.shortMessage || error.message || 'Contribution failed.' });
     } finally {
       setProcessingDonation(false);

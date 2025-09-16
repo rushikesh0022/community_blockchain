@@ -56,9 +56,9 @@ export const getTotalVotes = async (useTestAadhaar: boolean): Promise<any> => {
   try {
     const provider = getProvider();
     const voteContract = new ethers.Contract(
-      `0x${(useTestAadhaar
+      (useTestAadhaar
         ? process.env.NEXT_PUBLIC_VOTE_CONTRACT_ADDRESS_TEST
-        : process.env.NEXT_PUBLIC_VOTE_CONTRACT_ADDRESS_PROD) || ""}`,
+        : process.env.NEXT_PUBLIC_VOTE_CONTRACT_ADDRESS_PROD) || "",
       votingAbi.abi,
       provider
     );
@@ -98,9 +98,9 @@ export const hasVoted = async (
   try {
     const provider = getProvider();
     const voteContract = new ethers.Contract(
-      `0x${(useTestAadhaar
+      (useTestAadhaar
         ? process.env.NEXT_PUBLIC_VOTE_CONTRACT_ADDRESS_TEST
-        : process.env.NEXT_PUBLIC_VOTE_CONTRACT_ADDRESS_PROD) || ""}`,
+        : process.env.NEXT_PUBLIC_VOTE_CONTRACT_ADDRESS_PROD) || "",
       votingAbi.abi,
       provider
     );
@@ -116,9 +116,9 @@ export const hasVoted = async (
 export const getDisasterFundPoolContract = (useTestAadhaar: boolean) => {
   const provider = getProvider();
   return new ethers.Contract(
-    `0x${(useTestAadhaar
+    (useTestAadhaar
       ? process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_TEST
-      : process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_PROD) || ""}`,
+      : process.env.NEXT_PUBLIC_DISASTER_FUND_POOL_ADDRESS_PROD) || "",
     disasterFundPoolAbi.abi,
     provider
   );
